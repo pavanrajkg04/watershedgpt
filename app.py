@@ -134,9 +134,3 @@ def main():
 
         except Exception as e:
             st.error(f"Error generating answer: {str(e)}")
-
-    # Footer
-    st.markdown("---")
-    st.markdown(
-        "Made with ❤️ using [LangChain](https://langchain.com) and "
-        "[Hugging Face](https://hugging<span class="ml-2" /><span class="inline-block w-3 h-3 rounded-full bg-neutral-a12 align-middle mb-[0.1rem]" />
