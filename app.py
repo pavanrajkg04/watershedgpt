@@ -84,7 +84,7 @@ def main():
 
     # Check for HUGGINGFACEHUB_API_TOKEN
     if not os.getenv("HUGGINGFACEHUB_API_TOKEN"):
-        st.error("⚠️ HUGGINGFACEHUB_API_TOKEN not found. Please set it in your environment variables.")
+        st.error("⚠️ HUGGINGFACEHUB_API_TOKEN not found. Please set it in your environment variables")
         return
 
     # File upload
