@@ -3,7 +3,7 @@ import os
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import Chroma
+from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.llms import HuggingFaceHub
 import tempfile
@@ -48,12 +48,11 @@ def process_pdf(uploaded_file):
             model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
 
-        # Create vector store
-        vector_store = Chroma.from_documents(
-            documents=texts,
-            embedding=embeddings,
-            persist_directory="db"
-        )
+        # Create vector store using FAISS
+        vector_store = FAISS.from_documents(texts, embeddings)
+
+        # Save the vector store
+        vector_store.save_local("faiss_index")
 
         return vector_store
 
@@ -75,7 +74,7 @@ def main():
         - Streamlit
         - LangChain
         - Hugging Face
-        - ChromaDB
+        - FAISS
         """)
 
     # Main content
@@ -84,7 +83,7 @@ def main():
 
     # Check for HUGGINGFACEHUB_API_TOKEN
     if not os.getenv("HUGGINGFACEHUB_API_TOKEN"):
-        st.error("⚠️ HUGGINGFACEHUB_API_TOKEN not found. Please set it in your environment variables")
+        st.error("⚠️ HUGGINGFACEHUB_API_TOKEN not found. Please set it in your environment variables.")
         return
 
     # File upload
@@ -140,8 +139,4 @@ def main():
     st.markdown("---")
     st.markdown(
         "Made with ❤️ using [LangChain](https://langchain.com) and "
-        "[Hugging Face](https://huggingface.co)"
-    )
-
-if __name__ == "__main__":
-    main()
+        "[Hugging Face](https://hugging<span class="ml-2" /><span class="inline-block w-3 h-3 rounded-full bg-neutral-a12 align-middle mb-[0.1rem]" />

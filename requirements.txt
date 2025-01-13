@@ -1,6 +1,6 @@
 langchain
 streamlit
-chromadb
+faiss-cpu
 sentence-transformers
 pypdf
 requests
