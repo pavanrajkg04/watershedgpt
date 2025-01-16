@@ -1,87 +1,68 @@
+import streamlit as st
+from ollama import chat
+import fitz  # PyMuPDF
 import os
-import glob
-import ollama
-from langchain.document_loaders import TextLoader, PyPDFLoader, Document
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.chains import VectorDBQA
-from langchain.vectorstores import FAISS
-from langchain.chat_models import ChatOpenAI
-from langchain.prompts import PromptTemplate
+
+# Define the folder where your documents are stored
+DOCUMENTS_FOLDER_PATH = 'documents'  # Update this with the path to your folder containing PDFs
 
 
-# Step 1: Read documents from a folder (text, PDF, DOCX)
-def read_documents_from_folder(folder_path):
-    document_texts = []
-    file_types = ['*.txt', '*.pdf', '*.docx']  # You can add other file formats
+# Function to extract text from all PDFs in a folder
+def extract_text_from_pdfs(folder_path):
+    text = ''
+    # Check if the folder exists
+    if not os.path.exists(folder_path):
+        return "Error: Folder does not exist."
 
-    # Read text files
-    for file_type in file_types:
-        files = glob.glob(os.path.join(folder_path, file_type))
-        for file in files:
-            if file.endswith(".txt"):
-                with open(file, 'r', encoding='utf-8', errors='ignore') as f:
-                    document_texts.append(f.read())
-            elif file.endswith(".pdf"):
-                with open(file, "rb") as f:
-                    loader = PyPDFLoader(f)
-                    documents = loader.load()
-                    document_texts.extend([doc.page_content for doc in documents])
-            elif file.endswith(".docx"):
-                from docx import Document
-                doc = Document(file)
-                for para in doc.paragraphs:
-                    document_texts.append(para.text)
-
-    return [Document(page_content=text) for text in document_texts]
+    for filename in os.listdir(folder_path):
+        if filename.endswith('.pdf'):
+            pdf_path = os.path.join(folder_path, filename)
+            doc = fitz.open(pdf_path)
+            for page in doc:
+                text += page.get_text()
+    return text
 
 
-# Step 2: Create a vector store using LangChain's FAISS
-def create_vector_store(documents):
-    embeddings = OpenAIEmbeddings()  # You can change this to other embeddings like Ollama or any LLM-based embeddings
-    vector_store = FAISS.from_documents(documents, embeddings)
-    return vector_store
+# Function to query the chatbot and search documents
+def get_answer_from_chat_and_docs(question, folder_path):
+    # Step 1: Search PDF files for relevant content
+    docs_text = extract_text_from_pdfs(folder_path)
+
+    if docs_text == "Error: Folder does not exist.":
+        return docs_text
+
+    # Step 2: Call the chatbot API
+    response = chat(model='phi4', messages=[
+        {'role': 'user',
+         'content': f"Answer this question based on the following documents: {docs_text} \n\nQuestion: {question}"}
+    ])
+
+    # Step 3: Get the chatbot's response
+    return response['message']['content']
 
 
-# Step 3: Query the chatbot using the vector store
-def query_chatbot(user_query, vector_store):
-    # Initialize a retriever to fetch relevant documents
-    retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+# Streamlit UI
+def main():
+    st.title("Chat with Your PDF Documents")
 
-    # Setup the prompt and the model to answer questions based on the documents
-    qa_chain = VectorDBQA.from_chain_type(
-        llm=ollama.ChatOpenAI(model="phi4"),  # Replace this with Ollama API
-        vectorstore=vector_store,
-        chain_type="stuff",  # You can change this to other chain types like "map_reduce" or "refine"
-    )
+    # Automatic fetching of documents from the folder
+    folder_path = DOCUMENTS_FOLDER_PATH
 
-    # Get the response from the model
-    response = qa_chain.run(user_query)
-    return response
+    if not os.path.exists(folder_path):
+        st.error(f"Documents folder '{folder_path}' does not exist!")
+        return
 
+    st.write(f"Documents are being fetched from: {folder_path}")
 
-# Step 4: Main function to run the chatbot
-def run_chatbot(folder_path):
-    # Load documents from the folder
-    documents = read_documents_from_folder(folder_path)
+    # User inputs question
+    question = st.text_input("Ask a question about your documents:")
 
-    # Create a vector store for efficient querying
-    vector_store = create_vector_store(documents)
-
-    print("Bot is ready. Ask me anything!\n")
-
-    while True:
-        user_query = input("You: ")
-        if user_query.lower() == "exit":
-            print("Goodbye!")
-            break
-
-        # Query the chatbot
-        response = query_chatbot(user_query, vector_store)
-        print("Bot:", response)
+    if question:
+        st.write(f"Searching documents for: {question}")
+        with st.spinner("Finding the answer..."):
+            answer = get_answer_from_chat_and_docs(question, folder_path)
+            st.write(f"Answer: {answer}")
 
 
-# Example folder containing your documents
-folder_path = 'path/to/your/documents'  # Replace with the path to your documents folder
-
-# Run the chatbot
-run_chatbot(folder_path)
+if __name__ == "__main__":
+    main()
