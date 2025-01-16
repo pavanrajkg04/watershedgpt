@@ -5,7 +5,7 @@ import pdfplumber
 import os
 
 # Define the folder where your documents are stored
-DOCUMENTS_FOLDER_PATH = 'documents'  # Update this with the path to your folder containing PDFs
+DOCUMENTS_FOLDER_PATH = 'Documents'  # Update this with the path to your folder containing PDFs
 
 
 # Function to extract text from PDFs using PyMuPDF (fitz)
