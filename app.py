@@ -1,136 +1,87 @@
-import streamlit as st
 import os
-from langchain.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import HuggingFaceEmbeddings
+import glob
+import ollama
+from langchain.document_loaders import TextLoader, PyPDFLoader, Document
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.chains import VectorDBQA
 from langchain.vectorstores import FAISS
-from langchain.chains import RetrievalQA
-from langchain.llms import HuggingFaceHub
-import tempfile
-from dotenv import load_dotenv
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import PromptTemplate
 
-# Load environment variables
-load_dotenv()
 
-# Set page configuration
-st.set_page_config(
-    page_title="Document QA System",
-    page_icon="📚",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Step 1: Read documents from a folder (text, PDF, DOCX)
+def read_documents_from_folder(folder_path):
+    document_texts = []
+    file_types = ['*.txt', '*.pdf', '*.docx']  # You can add other file formats
 
-# Initialize session states
-if 'vector_store' not in st.session_state:
-    st.session_state.vector_store = None
+    # Read text files
+    for file_type in file_types:
+        files = glob.glob(os.path.join(folder_path, file_type))
+        for file in files:
+            if file.endswith(".txt"):
+                with open(file, 'r', encoding='utf-8', errors='ignore') as f:
+                    document_texts.append(f.read())
+            elif file.endswith(".pdf"):
+                with open(file, "rb") as f:
+                    loader = PyPDFLoader(f)
+                    documents = loader.load()
+                    document_texts.extend([doc.page_content for doc in documents])
+            elif file.endswith(".docx"):
+                from docx import Document
+                doc = Document(file)
+                for para in doc.paragraphs:
+                    document_texts.append(para.text)
 
-def process_pdf(uploaded_file):
-    """Process the uploaded PDF file and create a vector store."""
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-        tmp_file.write(uploaded_file.getvalue())
-        tmp_file_path = tmp_file.name
+    return [Document(page_content=text) for text in document_texts]
 
-    try:
-        # Load PDF
-        loader = PyPDFLoader(tmp_file_path)
-        documents = loader.load()
 
-        # Split text into chunks
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
-            length_function=len
-        )
-        texts = text_splitter.split_documents(documents)
+# Step 2: Create a vector store using LangChain's FAISS
+def create_vector_store(documents):
+    embeddings = OpenAIEmbeddings()  # You can change this to other embeddings like Ollama or any LLM-based embeddings
+    vector_store = FAISS.from_documents(documents, embeddings)
+    return vector_store
 
-        # Create embeddings
-        embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-        )
 
-        # Create vector store using FAISS
-        vector_store = FAISS.from_documents(texts, embeddings)
+# Step 3: Query the chatbot using the vector store
+def query_chatbot(user_query, vector_store):
+    # Initialize a retriever to fetch relevant documents
+    retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 3})
 
-        # Save the vector store
-        vector_store.save_local("faiss_index")
-
-        return vector_store
-
-    finally:
-        # Clean up temporary file
-        os.unlink(tmp_file_path)
-
-def main():
-    # Sidebar
-    with st.sidebar:
-        st.title("ℹ️ About")
-        st.markdown("""
-        This is a Document QA system that allows you to:
-        1. Upload PDF documents
-        2. Ask questions about the content
-        3. Get AI-generated answers
-        
-        Built with:
-        - Streamlit
-        - LangChain
-        - Hugging Face
-        - FAISS
-        """)
-
-    # Main content
-    st.title("📚 Document QA System")
-    st.markdown("---")
-
-    # Check for HUGGINGFACEHUB_API_TOKEN
-    if not os.getenv("HUGGINGFACEHUB_API_TOKEN"):
-        st.error("⚠️ HUGGINGFACEHUB_API_TOKEN not found. Please set it in your environment variables.")
-        return
-
-    # File upload
-    uploaded_file = st.file_uploader(
-        "Upload a PDF document",
-        type=['pdf'],
-        help="Upload a PDF file to analyze"
+    # Setup the prompt and the model to answer questions based on the documents
+    qa_chain = VectorDBQA.from_chain_type(
+        llm=ollama.ChatOpenAI(model="phi4"),  # Replace this with Ollama API
+        vectorstore=vector_store,
+        chain_type="stuff",  # You can change this to other chain types like "map_reduce" or "refine"
     )
 
-    if uploaded_file:
-        with st.spinner("Processing document..."):
-            try:
-                st.session_state.vector_store = process_pdf(uploaded_file)
-                st.success("✅ Document processed successfully!")
-            except Exception as e:
-                st.error(f"Error processing document: {str(e)}")
-                return
+    # Get the response from the model
+    response = qa_chain.run(user_query)
+    return response
 
-    # Query input
-    query = st.text_input(
-        "Ask a question about your document:",
-        placeholder="Enter your question here...",
-        disabled=not st.session_state.vector_store
-    )
 
-    if query and st.session_state.vector_store is not None:
-        try:
-            with st.spinner("Generating answer..."):
-                # Initialize HuggingFace model
-                llm = HuggingFaceHub(
-                    repo_id="google/flan-t5-base",
-                    model_kwargs={"temperature": 0.5, "max_length": 512}
-                )
+# Step 4: Main function to run the chatbot
+def run_chatbot(folder_path):
+    # Load documents from the folder
+    documents = read_documents_from_folder(folder_path)
 
-                # Create QA chain
-                qa_chain = RetrievalQA.from_chain_type(
-                    llm=llm,
-                    chain_type="stuff",
-                    retriever=st.session_state.vector_store.as_retriever()
-                )
+    # Create a vector store for efficient querying
+    vector_store = create_vector_store(documents)
 
-                # Get response
-                response = qa_chain.run(query)
-                
-                # Display response
-                st.markdown("### Answer:")
-                st.write(response)
+    print("Bot is ready. Ask me anything!\n")
 
-        except Exception as e:
-            st.error(f"Error generating answer: {str(e)}")
+    while True:
+        user_query = input("You: ")
+        if user_query.lower() == "exit":
+            print("Goodbye!")
+            break
+
+        # Query the chatbot
+        response = query_chatbot(user_query, vector_store)
+        print("Bot:", response)
+
+
+# Example folder containing your documents
+folder_path = 'path/to/your/documents'  # Replace with the path to your documents folder
+
+# Run the chatbot
+run_chatbot(folder_path)

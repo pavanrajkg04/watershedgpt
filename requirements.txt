@@ -1,9 +1,3 @@
+ollama
+glob
 langchain
-streamlit
-faiss-cpu
-sentence-transformers
-pypdf
-requests
-python-dotenv
-huggingface-hub
-langchain_community
